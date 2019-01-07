@@ -1,0 +1,314 @@
+
+\documentclass{article}
+
+\begin{document}
+
+\title{Instructions for Attenuation Tomography Spherical Code}
+\author{Rhys Hawkins}
+
+\maketitle
+
+\section{Synopsis}
+
+The main programs of interest are {\tt attenuationtomoS2Voronoi} and
+its parallel analog {\tt attenuationtomoS2VoronoiPT}. These programs
+take data, prior, proposal and other arguments as command line inputs
+and output a Markov chain history and other log files. The chain
+history files can be subsequently post processed by the tools {\tt
+  postS2Voronoi\_likelihood}, {\tt postS2Voronoi\_mean}, and {\tt
+  postS2Voronoi\_text} to generate images and other outputs.
+
+\section{Installation}
+
+This code is expected to be run on a Unix machine and requires the
+following packages to compile:
+
+\begin{itemize}
+\item GNU g++ Version 5.x or greater
+\item GNU Make version 4.x or greater
+\item GNU Scientific Library (GSL) version 1 or 2
+\item OpenMPI version 1.10
+\end{itemize}
+
+On Terrawulf, this requires the following modules to be loaded:
+\begin{itemize}
+\item compiler/gnu/6.1.0
+\item openmpi/gnu/1.10.2
+\item gsl/1.16
+\end{itemize}
+
+The source code with example scripts and data is called
+AttenuationVoronoi.tar.gz and once the environment is properly
+configued, extraction and compilation can proceed as follows:
+
+\begin{verbatim}
+> tar -xzf AttenuationVoronoi.tar.gz
+> cd AttenuationVoronoi
+> make -C libraries
+> make
+\end{verbatim}
+
+\section{Prior/Proposal Specification}
+
+\subsection{Values}
+
+A value prior and proposal is specified in a text file with a simple
+fixed format.  The format is:
+
+\begin{verbatim}
+prior <prior name>
+<prior parameters>
+proposal <proposal name>
+<proposal parameters>
+\end{verbatim}
+
+For this problem, the prior will either be {\tt Uniform} if using log
+space mode or {\tt LogNormal} otherwise.  The proposal will generally
+be {\tt Gaussian}. We show two examples appropriate for linear space
+sampling and log space sampling below:
+
+\begin{verbatim}
+prior LogNormal
+5.8 1.0
+proposal Gaussian
+1.0e1
+\end{verbatim}
+
+The {\tt LogNormal} prior has two parameters which are the mean and
+standard deviation of the log-normal distribution. In the example
+above, the mean is 5.8 (Q $\approx$ 330) and the standard deviation is
+1.0. The {\tt Gaussian} proposal has one parameter which is the
+standard deviation of the proposal. This should be tuned to obtain
+reasonable acceptance rates (generally between 20 and 60 percent).
+
+
+\begin{verbatim}
+prior Uniform
+0.0 8.0
+proposal Gaussian
+1.0e-2
+\end{verbatim}
+
+In this second example, suitable for sampling in log Q space, we use a
+{\tt Uniform} prior which has a range of 0.0 to 8.0 (Q $\approx$ 1
+$\ldots$ 3000).  We again use a {\tt Gaussian} proposal but note that
+the standard deviation will generally be required to be much smaller
+in magnitude to obtain reasonable acceptance rates.
+
+The prior specification for this hierarchical scaling parameter
+uses the same format as for the value prior file. For examples of
+both these types of prior files, see the files {\tt dataterrawulf/prior.txt}
+and {\tt dataterrawulf/hierarchical\_prior.txt} in the source
+distribution.
+
+\subsection{Position}
+
+The format for position prior/proposal is slightly different to prevent
+them from being inadvertently used as value prior/proposal. The format
+is 
+
+\begin{verbatim}
+sphericalprior <prior name>
+<prior parameters>
+sphericalproposal <proposal name>
+<proposal parameters>
+\end{verbatim}
+
+The prior will always be {\tt UniformSpherical} which has no parameters
+and the proposal will always be {\tt VonMisesSpherical} which has one
+parameter. An example is shown below:
+
+\begin{verbatim}
+sphericalprior UniformSpherical
+sphericalproposal VonMisesSpherical
+1.0e2
+\end{verbatim}
+
+The parameter for the {\tt VonMisesSpherical} proposal is the
+concentration parameter which is analogous to the inverse of the
+standard deviation, hence a value of 1.0e2 corresponds approximately
+to a standard deviation of approximately half a degree. As this
+parameter is the inversion of the standard deviation, it will need
+to be increased to improve acceptance rates if they are not satisfactory.
+
+\section{Running the programs}
+
+\subsection{Quick Example}
+
+This example doesn't do much, but as a quick test you can run
+
+\begin{verbatim}
+> ./attenuationtomoS2Voronoi -i data/coreattenuation.txt -t 1
+> ./postS2Voronoi_mean -i ch.dat -o mean.txt
+> python scripts/plot_image_ortho.py -f mean.txt
+\end{verbatim}
+
+The first command runs a Markov chain for 1 iteration, which will produce a
+{\tt ch.dat} file, the chain history, {\tt acceptance.txt}, the statistics
+of the proposals, and a {\tt khistogram.txt} file.
+
+The second command runs a post processing step that replays the chain history
+to compute model statistics, by default, just the mean of the ensemble. Lastly,
+a script plots the mean model, which in this case will be constant.
+
+\subsection{Command Options}
+
+Each of the programs implements the {\tt --help} command line argument
+which describes possible parameters to the programs. We describe the
+important ones here, firstly for the two simulation programs {\tt attenuationtomoS2Voronoi}
+and {\tt attenuationtomoS2VoronoiPT}
+
+\begin{description}
+\item [-i$|$--input $<$filename$>$] The data to load (required)
+\item [-I$|$--initial $<$filename/path$>$] The initial model(s) to load. For the serial version,
+  this is a filename, for the parallel version, this is a path to where a previous parallel
+  program outputted its final models.
+\item [-o$|$--output $<$path$>$] The output prefix or path to write output files to. You must include
+  a trailing ``/'' if you want the files in a directory and the directory must exist before starting.
+\item [-P$|$--prior $<$filename$>$] Load a prior for the values from the given filename.
+\item [-M$|$--move-prior $<$filename$>$] Load a prior for the positions from the given filename.
+\item [-H$|$--hierarchical-prior $<$filename$>$] Load a prior for the hierarchical scaling parameter. If a
+  hierarchical prior is specified, then this enables hierarchical parameter estimation as part of the
+  sampling process.
+\item [-t$|$--total $<$int$>$] The total number of iterations to run for.
+\item [-v$|$--verbosity $<$int$>$] The number of iterations between logging the status of the simulation.
+\item [-l$|$--lambda $<$float$>$] The initial or fixed hierarchical scale parameter for the noise. The noise
+  model is independent Gaussian with a standard deviation of $\lambda \sigma_d$ where $\lambda$ is
+  the hierarchical scaling parameter and $\sigma_d$ is the noise specified in the input data file.
+\item [-L$|$--logspace] Run the simulation in log Q.
+\item [-T$|$--max-cells $<$int$>$] The maximum number of Voronoi cells.
+\end{description}
+
+For the parallel version, there is the extra parameter which controls how the multiple
+processes are used in the simulation:
+
+\begin{description}
+\item [-c$|$--chains $<$int$>$] The number of independent chains to run.
+\end{description}
+
+In a parallel run, you will have some number of processes and this can be divided up
+into multiple chains or (the default) you can run a single chain and use the
+multiple processes to speed up computation of the likelihood function. For example,
+the command:
+
+\begin{verbatim}
+mpirun -np 12 ./attenuationtomoS2VoronoiPT <misc. arguments> -c 3
+\end{verbatim}
+
+will run in parallel on 12 processes with 3 indepedent chains. Each of the chains
+will compute the likelihood using 4 parallel processes. It should be clear that
+the number of chains must be an integer factor of the number of processes.
+
+For the post processing programs, they all have some common command line arguments:
+
+\begin{description}
+\item[-i$|$--input $<$filename$>$] The input {\tt ch.dat} chain history file to process.
+\item[-i$|$--output $<$filename$>$] The output file (depends on which program as to what it is)
+\item[-t$|$--thin $<$int$>$] Only process every nth model. A value of 1 or 0 means process every
+  model in the chain.
+\item[-s$|$--skip $<$int$>$] Start processing after the nth model.
+\end{description}
+
+If hierarchical noise estimation is done, the {\tt postS2Voronoi\_likelihood} has an option
+to output the hierarchical parameter history as well:
+
+\begin{description}
+\item[-H$|$--hierarchical $<$filename$>$] Output the hierarchical history
+\end{description}
+
+The mean post processing command takes a number of extra arguments
+
+\begin{description}
+\item [-m$|$--median $<$filename$>$] Output the median model to the specified file. The median model is computed from the histogram.
+\item [-M$|$--mode $<$filename$>$] Output the modal model to the specified file. The median model is computed from the histogram.
+\item [-T$|$--stddev $<$filename$>$] Output the standard deviation of the ensemble to the specified file.
+\item [-V$|$--variance $<$filename$>$] Output the variance of the ensemble to the specified file.
+\item [-e$|$--credmin $<$filename$>$] Credible minimum based on the 95\% credible interval. This is computed from the histogram.
+\item [-E$|$--credmax $<$filename$>$] Credible maximum based on the 95\% credible interval. This is computed from the histogram.
+\item [-g$|$--histogram $<$filename$>$] Output the histogram to the specified file.
+
+\item [-b$|$--histogram-bins $<$int$>$] No. bins in histogram
+\item [-z$|$--zmin $<$float$>$] Min value of histogram
+\item [-Z$|$--zmax $<$float$>$] Max value of histogram
+
+\item [-W$|$--lonsamples $<$int$>$]       No. samples in longitude direction
+\item [-H$|$--latsamples $<$int$>$]       No. samples in latitude direction
+\end{description}
+
+Care should be taken in setting the range of the histogram and the
+number of bins as this can adversely affect the mode, median, and
+credible outputs. The images are computed on a regular lon/lat grid
+and increasing the resolution of this grid can increase the time it
+takes to do the post processing.
+
+The convert to text program takes no other arguments, it simply
+outputs the model as a text file with each line of the format:
+
+\begin{verbatim}
+<iteration> <likelihood> <nhierarchical> <hierarchical parameter>*nhierarhical
+<ncells> <cell phi> [<cell theta> <cell value>]*ncells
+\end{verbatim}
+
+where {\tt phi} is the colatitude in radians and {\tt theta} is the longitude in radians.
+
+In general the likelihood and convert to text program are quick to run. The program for
+generating the mean, if the number of Voronoi cells or the resolution requested is large,
+can take quite a while. It is recommended to use a combination of lower resolution and
+higher thinning for test runs when looking at the 
+
+\subsection{Diagnostics}
+
+The program will output log messages periodically depending on the verbosity level (default is
+every 1000 iterations). This information includes the time which is useful for estimation of
+remaining running time by looking at the time difference between two log outputs.
+The first line contains the iterations number (1000), the number of Cells, the current negative log likelihood,
+and the hierarchical scaling parameter. The second line shows the number of proposals, the number of
+accepted proposals and the percentage acceptance rate for each of the proposal types. An example of
+the output is shown below (with text wrapped to fit the page)
+
+\begin{verbatim}
+2016-08-19 11:32:22:info:attenuationtomoS2VoronoiPT.cpp:main: 426: 1000: 
+Cells 1 Likelihood 221.591343 Lambda   1.000000
+2016-08-19 11:32:22:info:attenuationtomoS2VoronoiPT.cpp:main: 429:         
+Value:    696    219 :  31.47
+ Move:    213    208 :  97.65
+Birth:     53      1 :   1.89
+Death:     38      1 :   2.63
+\end{verbatim}
+
+
+\subsection{Running on Terrawulf}
+
+There are example PBS submission scripts in the {\tt dataterrawulf} subdirectory
+included in the source code tar.gz bundle. These can be adapted to run your own
+problems. The PBS scripts are split into two parts, first there is an ``init''
+script, e.g. {\tt pbs\_singlechain\_constant\_init.sh} which is run without
+parameters, i.e.
+
+\begin{verbatim}
+> qsub pbs_singlechain_constant_init.sh 
+\end{verbatim}
+
+and will output files to the {\tt constant\_mpi\_0}. Then, this
+simulation can be continued with with the {\tt pbs\_singlechain\_constant\_cont.sh}
+script by setting the source and destination step, i.e.
+
+\begin{verbatim}
+> qsub -v SRCSTEP=0,DSTSTEP=1 pbs_singlechain_constant_cont.sh
+\end{verbatim}
+
+Which will then start from the previous run started by the ``init'' script and
+output results to {\tt constant\_mpi\_1}. This process can be repeated indefinitely
+until convergence is complete.
+
+The parallel program regularly outputs diagnostic information to log files in the
+output directories, in the above example, progress can be checked by running
+
+\begin{verbatim}
+> tail constant_mpi_0/log.txt-000
+\end{verbatim}
+
+which should show diagnostic information including current iteration number and
+acceptance rates.
+
+\end{document}
